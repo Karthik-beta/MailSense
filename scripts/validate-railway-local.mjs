@@ -20,6 +20,7 @@ const tempDatabasePath = resolve(tempDirectory, 'mailsense.db');
 const sampleCsvPath = resolve(tempDirectory, 'sample.csv');
 const buildDirectoryPath = resolve(rootDir, 'build');
 const buildEntryPath = resolve(buildDirectoryPath, 'index.js');
+const defaultReacherBinaryPath = resolve(rootDir, '.reacher/bin/check_if_email_exists');
 const sessionToken = 'validation-session-token';
 const placeholderSecret = 'local-validation-secret-0123456789abcdef';
 const placeholderGoogleClientId = 'local-validation-google-client-id';
@@ -86,6 +87,9 @@ const parseDotEnv = (filePath) => {
 	return parsed;
 };
 
+const resolveReacherBinaryPath = (env) =>
+	resolve(rootDir, env.REACHER_CLI_PATH || defaultReacherBinaryPath);
+
 const baseEnv = {
 	...parseDotEnv(resolve(rootDir, '.env')),
 	...process.env
@@ -123,10 +127,18 @@ const auditEnvironment = (env) => {
 		);
 	}
 
+	if (origin && !isLocalHost(origin.toString()) && origin.protocol !== 'https:') {
+		failures.push('ORIGIN must use https:// in production.');
+	}
+
 	if (authUrl && isLocalHost(authUrl.toString())) {
 		failures.push(
 			'BETTER_AUTH_URL still points to a local hostname. Set it to the Railway public URL or custom domain.'
 		);
+	}
+
+	if (authUrl && !isLocalHost(authUrl.toString()) && authUrl.protocol !== 'https:') {
+		failures.push('BETTER_AUTH_URL must use https:// in production.');
 	}
 
 	if (isBlank(env.BETTER_AUTH_SECRET)) {
@@ -143,9 +155,24 @@ const auditEnvironment = (env) => {
 		failures.push('GOOGLE_CLIENT_SECRET is missing.');
 	}
 
-	if (isBlank(env.REACHER_API_TOKEN) && isBlank(env.REACHER_BACKEND_URL)) {
-		failures.push('Set REACHER_API_TOKEN or REACHER_BACKEND_URL before deployment.');
+	if (!isBlank(env.REACHER_API_TOKEN)) {
+		warnings.push(
+			'REACHER_API_TOKEN is obsolete and ignored. MailSense now runs embedded verification internally.'
+		);
 	}
+
+	if (!isBlank(env.REACHER_BACKEND_URL)) {
+		warnings.push(
+			'REACHER_BACKEND_URL is obsolete and ignored. MailSense no longer calls an external Reacher backend.'
+		);
+	}
+
+	warnings.push(
+		'Embedded verification still depends on outbound SMTP reachability. Railway only allows SMTP on Pro plans and above.'
+	);
+	infos.push(
+		'MailSense now verifies email inside the app service with an embedded Reacher CLI binary.'
+	);
 
 	if (isBlank(env.DATABASE_URL)) {
 		failures.push('DATABASE_URL is missing.');
@@ -292,6 +319,10 @@ const runBuildValidation = async (env) => {
 	cleanBuildArtifacts();
 	await runCommand('bun', ['run', 'build'], { env, timeoutMs: 120000 });
 	assert(existsSync(buildEntryPath), 'Expected build/index.js after bun run build.');
+	assert(
+		existsSync(resolveReacherBinaryPath(env)),
+		'Expected the embedded Reacher CLI binary after bun run build.'
+	);
 	log('Build validation passed.');
 };
 
@@ -553,13 +584,15 @@ const runRuntimeSmoke = async (env, origin) => {
 			['valid', 'risky', 'invalid', 'unknown'].includes(verifyPayload.riskLevel),
 			'Manual verification returned an unexpected risk level.'
 		);
-
-		if (!env.REACHER_API_TOKEN && !env.REACHER_BACKEND_URL) {
-			assert(
-				String(verifyPayload.reason).includes('Reacher is not configured'),
-				'Missing Reacher credentials should surface a clear runtime reason.'
-			);
-		}
+		assert(
+			verifyPayload.details?.integration === 'embedded-reacher-cli',
+			'Manual verification should use the embedded Reacher CLI integration.'
+		);
+		assert(
+			!String(verifyPayload.reason).includes('REACHER_API_TOKEN') &&
+				!String(verifyPayload.reason).includes('REACHER_BACKEND_URL'),
+			'Manual verification should not depend on external Reacher credentials anymore.'
+		);
 
 		log('Runtime validation passed.');
 	} finally {

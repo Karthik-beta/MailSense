@@ -25,6 +25,7 @@ vite.config.ts.timestamp-*
 *.db
 /data
 /.tmp
+/.reacher
 
 # Other
 .prompt

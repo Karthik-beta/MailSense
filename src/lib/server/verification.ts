@@ -1,6 +1,14 @@
 import { count, desc, eq, sql } from 'drizzle-orm';
-import { checkSingle, type CheckEmailOutput } from '@reacherhq/api';
-import { appConfig, isReacherConfigured } from '$lib/server/config';
+import { appConfig } from '$lib/server/config';
+import {
+	runEmbeddedReacher,
+	type ReacherCliOutput,
+	type ReacherCoreError,
+	type ReacherMiscDetails,
+	type ReacherOutputField,
+	type ReacherSmtpDetails,
+	type ReacherWrappedError
+} from '$lib/server/reacher-cli';
 import type {
 	LeadFilters,
 	RiskLevel,
@@ -21,23 +29,6 @@ type VerificationDecision = {
 };
 
 const sleep = (duration: number) => new Promise((resolve) => setTimeout(resolve, duration));
-
-const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number) => {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new Error('Verification timed out.')), timeoutMs);
-			})
-		]);
-	} finally {
-		if (timer) {
-			clearTimeout(timer);
-		}
-	}
-};
 
 const syncRunMetrics = (runId: string) => {
 	const metrics = db
@@ -67,7 +58,8 @@ const syncRunMetrics = (runId: string) => {
 		.where(eq(verificationRuns.id, runId))
 		.run();
 };
-const isCoreError = (value: unknown): value is { type: string; message: string } => {
+
+const isCoreError = (value: unknown): value is ReacherCoreError => {
 	if (!value || typeof value !== 'object') {
 		return false;
 	}
@@ -75,11 +67,51 @@ const isCoreError = (value: unknown): value is { type: string; message: string }
 	return 'type' in value && 'message' in value;
 };
 
-const mapVerificationResult = (result: CheckEmailOutput): VerificationDecision => {
-	const misc = isCoreError(result.misc) ? null : result.misc;
-	const smtp = isCoreError(result.smtp) ? null : result.smtp;
-	const coreErrors = [result.misc, result.mx, result.smtp].filter(isCoreError);
+const isWrappedCoreError = (value: unknown): value is ReacherWrappedError => {
+	if (!value || typeof value !== 'object' || !('error' in value)) {
+		return false;
+	}
+
+	return isCoreError(value.error);
+};
+
+const extractCoreError = (value: unknown) => {
+	if (isCoreError(value)) {
+		return value;
+	}
+
+	if (isWrappedCoreError(value)) {
+		return value.error;
+	}
+
+	return null;
+};
+
+const extractCoreErrorDescription = (value: unknown) => {
+	if (isWrappedCoreError(value) && typeof value.description === 'string') {
+		return value.description;
+	}
+
+	return null;
+};
+
+const hasFieldError = <T>(
+	value: ReacherOutputField<T>
+): value is ReacherCoreError | ReacherWrappedError =>
+	isCoreError(value) || isWrappedCoreError(value);
+
+const mapVerificationResult = (result: ReacherCliOutput): VerificationDecision => {
+	const misc: ReacherMiscDetails | null = hasFieldError(result.misc) ? null : result.misc;
+	const smtp: ReacherSmtpDetails | null = hasFieldError(result.smtp) ? null : result.smtp;
+	const coreErrors = [result.misc, result.mx, result.smtp]
+		.map(extractCoreError)
+		.filter((value): value is ReacherCoreError => Boolean(value));
+	const coreErrorDescriptions = [result.misc, result.mx, result.smtp]
+		.map(extractCoreErrorDescription)
+		.filter((value): value is string => Boolean(value));
+	const firstFailureReason = coreErrorDescriptions[0] ?? coreErrors[0]?.message;
 	const details = {
+		integration: 'embedded-reacher-cli',
 		input: result.input,
 		reachable: result.is_reachable,
 		syntax: result.syntax,
@@ -101,7 +133,7 @@ const mapVerificationResult = (result: CheckEmailOutput): VerificationDecision =
 
 	if (result.is_reachable === 'invalid') {
 		const reason =
-			coreErrors[0]?.message ||
+			firstFailureReason ||
 			(smtp?.is_disabled ? 'Mailbox is disabled' : 'Mailbox is not reachable');
 		return {
 			verificationStatus: 'invalid',
@@ -143,7 +175,7 @@ const mapVerificationResult = (result: CheckEmailOutput): VerificationDecision =
 		return {
 			verificationStatus: 'risky',
 			riskLevel: 'risky',
-			reason: riskSignals[0] ?? coreErrors[0]?.message ?? 'Verification returned a risky result',
+			reason: riskSignals[0] ?? firstFailureReason ?? 'Verification returned a risky result',
 			details,
 			technicalFailure: false
 		};
@@ -152,29 +184,14 @@ const mapVerificationResult = (result: CheckEmailOutput): VerificationDecision =
 	return {
 		verificationStatus: 'unknown',
 		riskLevel: 'unknown',
-		reason: coreErrors[0]?.message ?? 'Verification was inconclusive',
+		reason: firstFailureReason ?? 'Verification was inconclusive',
 		details,
 		technicalFailure: coreErrors.length > 0
 	};
 };
 
 const runReacherVerification = async (email: string) => {
-	if (!isReacherConfigured()) {
-		throw new Error('Reacher is not configured. Set REACHER_API_TOKEN or REACHER_BACKEND_URL.');
-	}
-
-	const result = await withTimeout(
-		checkSingle(
-			{ to_email: email },
-			{
-				apiToken: appConfig.reacherApiToken || 'self-hosted',
-				backendUrl: appConfig.reacherBackendUrl
-			}
-		),
-		appConfig.verificationTimeoutMs
-	);
-
-	return mapVerificationResult(result);
+	return mapVerificationResult(await runEmbeddedReacher(email));
 };
 
 const persistLeadVerification = (

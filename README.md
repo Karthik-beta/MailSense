@@ -1,6 +1,6 @@
 # MailSense
 
-MailSense is an internal lead-verification tool for B2B marketing workflows. It imports CSV and XLSX lead files, stores canonical leads in SQLite, verifies addresses with Reacher, shows verification status and risk in a simple dashboard, and exports clean rows for a separate sending system.
+MailSense is an internal lead-verification tool for B2B marketing workflows. It imports CSV and XLSX lead files, stores canonical leads in SQLite, verifies addresses with an embedded Reacher CLI inside the app service, shows verification status and risk in a simple dashboard, and exports clean rows for a separate sending system.
 
 ## Stack
 
@@ -8,6 +8,7 @@ MailSense is an internal lead-verification tool for B2B marketing workflows. It 
 - Hono mounted under `/api`
 - SQLite with Drizzle ORM and `better-sqlite3`
 - Better Auth with Google OAuth
+- Embedded Reacher CLI for in-app email verification
 - Bun for package management
 - Railway deployment via `@sveltejs/adapter-node`
 
@@ -34,12 +35,15 @@ Create local environment variables:
 cp .env.example .env
 ```
 
+For local Google sign-in, the OAuth client must allow the exact local callback URL:
+
+- `http://localhost:5173/api/auth/callback/google`
+
 Required values for actual authentication and verification:
 
 - `BETTER_AUTH_SECRET`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `REACHER_API_TOKEN` or `REACHER_BACKEND_URL`
 
 Useful defaults are already present in `.env.example` for local development structure.
 
@@ -55,6 +59,13 @@ Validate the app:
 bun run check
 bun run lint
 bun run build
+```
+
+The dev and build scripts automatically download a pinned Reacher CLI binary into `/.reacher`.
+If you want to fetch or refresh it explicitly, run:
+
+```sh
+bun run reacher:install
 ```
 
 Run Railway-like local validation:
@@ -78,23 +89,77 @@ bun run db:generate
 
 The current initial migration is stored in `drizzle/0000_loud_susan_delgado.sql`.
 
+## Google OAuth setup
+
+MailSense uses Better Auth with the Google provider. Better Auth builds the callback URL from
+`BETTER_AUTH_URL` and expects Google to redirect back to:
+
+- `<BETTER_AUTH_URL>/api/auth/callback/google`
+
+If Google shows `Error 400: redirect_uri_mismatch`, compare the URI in the error page with the
+URIs configured in Google Cloud Console. They must match exactly, including scheme, host, port,
+and path.
+
+Recommended Google Cloud setup:
+
+1. Open Google Cloud Console and create or select the project for MailSense.
+2. Configure the OAuth consent screen for your organization.
+3. Create an OAuth 2.0 Client ID of type `Web application`.
+4. Add authorized JavaScript origins for every environment you use:
+   - `http://localhost:5173`
+   - `https://<your-railway-domain>` or your custom domain
+5. Add authorized redirect URIs for every environment you use:
+   - `http://localhost:5173/api/auth/callback/google`
+   - `https://<your-railway-domain>/api/auth/callback/google`
+6. Copy the client ID and client secret into `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+7. Set `ORIGIN` and `BETTER_AUTH_URL` to the same base URL for that environment.
+
+Rules that matter:
+
+- `BETTER_AUTH_URL` and `ORIGIN` should point to the same public base URL.
+- Production should use `https://`, not `http://`.
+- If your local dev server uses a different port, register that exact port in Google Cloud.
+- If you switch from the Railway generated domain to a custom domain, add the custom domain to both
+  authorized origins and authorized redirect URIs.
+
 ## Environment variables
 
 Key runtime settings:
 
 - `DATABASE_URL`: SQLite file path. Local default is `./data/mailsense.db`.
-- `ORIGIN`: Public app origin.
-- `BETTER_AUTH_URL`: Public base URL used by Better Auth.
-- `BETTER_AUTH_SECRET`: Better Auth secret.
+- `ORIGIN`: Public app origin. In production this should be the `https://` URL users actually open.
+- `BETTER_AUTH_URL`: Public base URL used by Better Auth. Keep it identical to `ORIGIN`.
+- `BETTER_AUTH_SECRET`: Better Auth secret. Use a high-entropy value with at least 32 characters.
 - `GOOGLE_CLIENT_ID`: Google OAuth client ID.
-- `GOOGLE_CLIENT_SECRET`: Google OAuth client secret.
-- `REACHER_API_TOKEN`: Hosted Reacher API token.
-- `REACHER_BACKEND_URL`: Optional self-hosted Reacher endpoint.
+- `GOOGLE_CLIENT_SECRET`: Google OAuth client secret. Keep it only in server-side environment variables.
+- `REACHER_FROM_EMAIL`: Optional sender address used by the embedded verifier when opening SMTP conversations.
+- `REACHER_HELLO_NAME`: Optional EHLO/HELO name for the embedded verifier. Defaults to the app hostname.
+- `REACHER_SMTP_PORT`: SMTP port used by the embedded verifier. Defaults to `25`.
+- `REACHER_CHECK_GRAVATAR`: Optional `true`/`false` flag to enable Gravatar checks.
 - `VERIFICATION_PACING_MS`: Delay between checks within a bulk chunk.
 - `VERIFICATION_TIMEOUT_MS`: Per-check timeout.
 - `VERIFICATION_BATCH_SIZE`: Maximum checks per bulk-processing request.
 - `VERIFICATION_STALE_RUN_MINUTES`: When a processing run can be resumed safely.
 - `MAX_UPLOAD_BYTES`: Upload size cap.
+
+How embedded verification works:
+
+- MailSense no longer depends on a hosted Reacher API or a separately deployed Reacher backend.
+- `bun run dev` and `bun run build` download a pinned Reacher CLI binary into the app workspace.
+- The backend executes that binary locally for manual checks and bulk verification runs.
+- This preserves the single-service Railway deployment model from the user's point of view.
+- Verification accuracy still depends on outbound DNS and SMTP reachability from the deployed container.
+- Railway currently allows outbound SMTP on Pro plans and above, so embedded verification may be limited on lower plans even though no second service is required.
+
+## Production security checklist
+
+- Keep `.env` local only and inject production secrets through Railway variables.
+- Use a dedicated production Google OAuth client or at least dedicated production callback entries.
+- Set `ORIGIN` and `BETTER_AUTH_URL` to the same `https://` URL.
+- Store SQLite on a persistent Railway volume, typically `DATABASE_URL=/data/mailsense.db`.
+- Generate a strong `BETTER_AUTH_SECRET` and rotate it if it was ever exposed.
+- Remove any stale `REACHER_API_TOKEN` or `REACHER_BACKEND_URL` variables from production config; they are ignored now.
+- Re-run `bun run validate:predeploy` before deployment changes.
 
 ## Railway deployment
 
@@ -105,9 +170,16 @@ Recommended Railway setup:
 1. Create one service from this repository.
 2. Add a persistent volume mounted at `/data`.
 3. Set `DATABASE_URL=/data/mailsense.db`.
-4. Set `ORIGIN` and `BETTER_AUTH_URL` to the Railway public URL or custom domain.
-5. Add Google OAuth and Reacher secrets.
-6. Set the Google OAuth callback URLs to include your Railway domain.
+4. Set `ORIGIN` and `BETTER_AUTH_URL` to the same Railway public URL or custom domain.
+5. Add the Google OAuth secrets and any optional embedded-verifier tuning variables you want to use.
+6. In Google Cloud, add the exact production callback URI:
+   - `https://<your-railway-domain>/api/auth/callback/google`
+7. If you expose a custom domain, add that exact callback URI too.
+
+Railway note:
+
+- The verifier is bundled into MailSense, but real SMTP reachability still depends on Railway plan and outbound-network policy.
+- If Railway blocks SMTP for your environment, verification can still return `unknown` for domains the container cannot probe.
 
 The deployment uses `bun run start`, which:
 
@@ -120,8 +192,8 @@ The deployment uses `bun run start`, which:
 The local validation flow is designed to catch build and runtime surprises before you point Railway at the repo.
 
 - `bun run validate:build`: removes the old build output, injects production-like runtime env defaults, and checks that adapter-node emits a runnable production bundle.
-- `bun run validate:runtime`: builds, starts the production server through `bun run start`, verifies `HOST` and `PORT` binding, checks DB initialization and migrations, seeds a disposable Better Auth session, and smoke-tests protected import, leads, export, and manual verification endpoints against the real production server.
-- `bun run validate:predeploy`: runs the runtime validation plus a strict environment audit for Railway readiness. It intentionally fails if your current env still points at local callback URLs, lacks required auth or Reacher variables, or uses a non-persistent `DATABASE_URL`.
+- `bun run validate:runtime`: builds, starts the production server through `bun run start`, verifies `HOST` and `PORT` binding, checks DB initialization and migrations, seeds a disposable Better Auth session, and smoke-tests protected import, leads, export, and embedded manual verification endpoints against the real production server.
+- `bun run validate:predeploy`: runs the runtime validation plus a strict environment audit for Railway readiness. It intentionally fails if your current env still points at local callback URLs, lacks required auth variables, or uses a non-persistent `DATABASE_URL`.
 
 Validation artifacts are written under `/.tmp/railway-local` so your regular local database is left alone.
 
@@ -147,6 +219,7 @@ Health check endpoint:
 - `bun run validate:build`: clean production build validation with Railway-like env defaults
 - `bun run validate:runtime`: production runtime smoke test using the built server
 - `bun run validate:predeploy`: strict Railway readiness audit plus runtime validation
+- `bun run reacher:install`: download or refresh the pinned embedded Reacher CLI binary
 - `bun run db:generate`: generate Drizzle SQL migration files
 - `bun run db:push`: push schema directly to SQLite
 - `bun run auth:schema`: regenerate Better Auth SQLite schema

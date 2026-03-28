@@ -190,21 +190,16 @@
 				<h1>Run manual checks immediately, then push bulk verification at a safe pace.</h1>
 				<p>
 					Bulk runs advance through explicit API calls instead of an always-on worker, which keeps
-					the app scale-to-zero friendly on Railway while still preserving progress.
+					the app scale-to-zero friendly on Railway while verification still runs inside the same
+					service.
 				</p>
 			</div>
 			<div class="metric-strip">
 				<span class="capsule">{data.unverifiedTotal} unverified leads</span>
+				<span class="capsule">Embedded verifier, no extra service</span>
 				<span class="capsule">Chunked runs, conservative pacing</span>
 			</div>
 		</div>
-
-		{#if !data.isReacherConfigured}
-			<div class="message warning">
-				Reacher is not configured yet. Set the Reacher environment variables before running
-				verification.
-			</div>
-		{/if}
 	</section>
 
 	<section class="two-column">
@@ -227,7 +222,7 @@
 					/>
 				</div>
 				<div class="form-actions">
-					<button class="button" type="submit" disabled={isManualBusy || !data.isReacherConfigured}>
+					<button class="button" type="submit" disabled={isManualBusy}>
 						{isManualBusy ? 'Verifying...' : 'Verify email'}
 					</button>
 				</div>
@@ -281,12 +276,7 @@
 			</div>
 
 			<div class="form-actions">
-				<button
-					class="button"
-					type="button"
-					onclick={createRun}
-					disabled={isRunBusy || !data.isReacherConfigured}
-				>
+				<button class="button" type="button" onclick={createRun} disabled={isRunBusy}>
 					{isRunBusy ? 'Working...' : 'Start safe bulk run'}
 				</button>
 				{#if activeRun && activeRun.status !== 'completed'}
@@ -294,7 +284,7 @@
 						class="button secondary"
 						type="button"
 						onclick={() => void processCurrentRun()}
-						disabled={isRunBusy || !data.isReacherConfigured}
+						disabled={isRunBusy}
 					>
 						Process next chunk
 					</button>
@@ -390,7 +380,7 @@
 											class="button ghost"
 											type="button"
 											onclick={() => void resumeRun(run)}
-											disabled={isRunBusy || !data.isReacherConfigured}
+											disabled={isRunBusy}
 										>
 											Resume
 										</button>
