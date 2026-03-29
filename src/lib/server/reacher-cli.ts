@@ -201,7 +201,12 @@ export const runEmbeddedReacher = (email: string) =>
 					child.kill('SIGKILL');
 				}
 			}, 1_000).unref();
-			settleReject(new Error('Verification timed out.'));
+			const hint = (stderr || stdout).trim();
+			settleReject(
+				new Error(
+					`Verification timed out after ${appConfig.verificationTimeoutMs}ms.${hint ? ` Partial output: ${hint.slice(0, 200)}` : ''}`
+				)
+			);
 		}, appConfig.verificationTimeoutMs);
 
 		child.stdout.on('data', (chunk) => {

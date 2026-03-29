@@ -64,7 +64,7 @@ export const classifyProcessError = (error: unknown): ClassifiedFailure => {
 	}
 
 	if (lower.includes('timed out') || lower.includes('timeout')) {
-		return { failureClass: 'cli_timeout', summary: 'Verification process timed out before Reacher returned a result.', rawError: message, ...INFRA_SIDE };
+		return { failureClass: 'cli_timeout', summary: 'Verification process timed out before Reacher returned a result.', rawError: message, ...AMBIGUOUS_SIDE };
 	}
 
 	if (lower.includes('invalid json') || lower.includes('no output') || lower.includes('unexpected json') || lower.includes('returned invalid output')) {

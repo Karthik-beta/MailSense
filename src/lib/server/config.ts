@@ -33,7 +33,7 @@ export const appConfig = {
 	reacherSmtpPort: parseInteger(env.REACHER_SMTP_PORT, 25),
 	reacherCheckGravatar: parseBoolean(env.REACHER_CHECK_GRAVATAR, false),
 	verificationPacingMs: parseInteger(env.VERIFICATION_PACING_MS, 1500),
-	verificationTimeoutMs: parseInteger(env.VERIFICATION_TIMEOUT_MS, 15000),
+	verificationTimeoutMs: parseInteger(env.VERIFICATION_TIMEOUT_MS, 30000),
 	verificationBatchSize: parseInteger(env.VERIFICATION_BATCH_SIZE, 25),
 	verificationStaleRunMinutes: parseInteger(env.VERIFICATION_STALE_RUN_MINUTES, 15),
 	maxUploadBytes: parseInteger(env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024)

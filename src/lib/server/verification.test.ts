@@ -75,7 +75,7 @@ describe('verification failure classification integration', () => {
 	it('timeout errors get classified as cli_timeout', () => {
 		const classification = classifyProcessError(new Error('Verification timed out.'));
 		expect(classification.failureClass).toBe('cli_timeout');
-		expect(classification.isInfrastructureSide).toBe(true);
+		expect(classification.isInfrastructureSide).toBe(false);
 		expect(classification.isAppSide).toBe(false);
 	});
 

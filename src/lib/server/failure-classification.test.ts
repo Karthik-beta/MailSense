@@ -33,7 +33,8 @@ describe('classifyProcessError', () => {
 	it('classifies timeout errors', () => {
 		const result = classifyProcessError(new Error('Verification timed out.'));
 		expect(result.failureClass).toBe('cli_timeout');
-		expect(result.isInfrastructureSide).toBe(true);
+		expect(result.isInfrastructureSide).toBe(false);
+		expect(result.isAppSide).toBe(false);
 	});
 
 	it('classifies malformed output errors', () => {
