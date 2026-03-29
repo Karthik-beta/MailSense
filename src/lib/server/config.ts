@@ -24,20 +24,12 @@ const parseBoolean = (value: string | undefined, fallback = false) => {
 
 const defaultPublicBaseUrl = env.BETTER_AUTH_URL || env.ORIGIN || 'http://localhost:5173';
 
-const deriveHelloName = (value: string) => {
-	try {
-		return new URL(value).hostname || 'localhost';
-	} catch {
-		return 'localhost';
-	}
-};
-
 export const appConfig = {
 	databaseUrl: env.DATABASE_URL || './data/mailsense.db',
 	publicBaseUrl: defaultPublicBaseUrl,
 	reacherCliPath: env.REACHER_CLI_PATH || '.reacher/bin/check_if_email_exists',
 	reacherFromEmail: env.REACHER_FROM_EMAIL || undefined,
-	reacherHelloName: env.REACHER_HELLO_NAME || deriveHelloName(defaultPublicBaseUrl),
+	reacherHelloName: env.REACHER_HELLO_NAME || undefined,
 	reacherSmtpPort: parseInteger(env.REACHER_SMTP_PORT, 25),
 	reacherCheckGravatar: parseBoolean(env.REACHER_CHECK_GRAVATAR, false),
 	verificationPacingMs: parseInteger(env.VERIFICATION_PACING_MS, 1500),

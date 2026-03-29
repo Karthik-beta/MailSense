@@ -57,7 +57,7 @@ export type ReacherCliOutput = {
 
 const getBinaryPath = () => resolve(process.cwd(), appConfig.reacherCliPath);
 
-const buildCliArguments = (email: string) => {
+export const buildCliArguments = (email: string) => {
 	const args: string[] = [];
 
 	if (appConfig.reacherFromEmail) {

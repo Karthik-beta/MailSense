@@ -223,3 +223,73 @@ Health check endpoint:
 - `bun run db:generate`: generate Drizzle SQL migration files
 - `bun run db:push`: push schema directly to SQLite
 - `bun run auth:schema`: regenerate Better Auth SQLite schema
+- `bun run test`: run unit tests with Vitest
+
+## Verification subdomain setup
+
+MailSense supports configuring a dedicated verification identity so Reacher uses your own subdomain
+when probing remote mail servers. This is optional — without it, Reacher uses its built-in defaults
+(`reacher.email@gmail.com` as the `MAIL FROM` address and `gmail.com` as the `EHLO` name).
+
+### Why use a dedicated subdomain
+
+Using a dedicated subdomain keeps verification SMTP traffic separate from your primary domain and
+gives you control over the identity that remote servers see during SMTP conversations.
+
+### How to configure
+
+1. **Choose a subdomain** — for example, `verify.yourdomain.com`.
+2. **Create a DNS A record** pointing the subdomain to your server's public IP address.
+3. **Set the environment variables:**
+   ```sh
+   REACHER_FROM_EMAIL=check@verify.yourdomain.com
+   REACHER_HELLO_NAME=verify.yourdomain.com
+   ```
+4. **Restart the app** (or redeploy on Railway).
+
+Both variables are optional. If either is unset, Reacher uses its own built-in default for that
+value. The app does not invent fallback values — it either passes your configured value to the CLI
+or omits the flag entirely.
+
+### Reacher CLI flags used
+
+The embedded Reacher CLI (pinned version) supports these identity-related flags:
+
+- `--from-email`: The email address used in the `MAIL FROM:` SMTP command. Reacher default: `reacher.email@gmail.com`.
+- `--hello-name`: The hostname used in the `EHLO` SMTP command. Reacher default: `gmail.com`.
+- `--smtp-port`: The SMTP port. Reacher default: `25`.
+
+These are the only identity inputs passed to the CLI. MailSense does not add custom SMTP behavior,
+synthetic flags, or app-level verification heuristics.
+
+### CLI argument path
+
+All verification flows — manual single verification and bulk verification runs — use the same
+centralized `buildCliArguments` function. There is a single code path that constructs CLI arguments,
+ensuring consistent identity across every verification.
+
+## Setup assistant
+
+The app includes a minimal setup assistant at `/setup` that helps the operator:
+
+- See the effective verification identity configuration (configured values vs. Reacher defaults)
+- Understand which values need to be configured for a dedicated subdomain
+- Get copyable DNS record and environment variable templates
+- Run a readiness check
+
+### What the readiness check verifies
+
+- Whether the Reacher CLI binary is installed
+- Whether configured values are present
+- Whether `REACHER_FROM_EMAIL` is a syntactically valid email address (if set)
+- Whether `REACHER_HELLO_NAME` is a syntactically valid hostname (if set)
+- Whether the `REACHER_HELLO_NAME` hostname resolves publicly via DNS (if set and valid)
+- Whether the effective configuration is complete enough to run the CLI
+
+### What the readiness check does NOT prove
+
+- It does not verify that any email address is deliverable.
+- It does not test SMTP reputation or sender trust.
+- It does not guarantee that remote mail servers will accept SMTP connections.
+- It does not replace running an actual Reacher verification.
+- DNS resolution confirms the hostname exists, not that SMTP will succeed.

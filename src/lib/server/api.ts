@@ -13,6 +13,7 @@ import {
 	processVerificationRun,
 	verifySingleEmail
 } from './verification';
+import { checkSetupReadiness } from './setup';
 
 type ApiVariables = {
 	user: User | null;
@@ -186,6 +187,18 @@ export const createApiApp = (event: RequestEvent) => {
 				'content-disposition': `attachment; filename="${payload.fileName}"`
 			}
 		});
+	});
+
+	app.get('/setup/reacher', async (c) => {
+		try {
+			const result = await checkSetupReadiness();
+			return c.json(result);
+		} catch (error) {
+			return c.json(
+				{ error: error instanceof Error ? error.message : 'Setup check failed.' },
+				500
+			);
+		}
 	});
 
 	app.notFound((c) => c.json({ error: 'Not found' }, 404));
