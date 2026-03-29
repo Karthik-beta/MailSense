@@ -16,93 +16,125 @@
 	let stats = $derived(data.dashboard.stats);
 </script>
 
-<div class="page-shell">
-	<section class="hero-panel stack">
-		<div class="split">
-			<div class="section-intro">
-				<span class="kicker">Dashboard</span>
-				<h1>See import health, verification coverage, and what is ready to export.</h1>
-				<p>
-					The dashboard stays intentionally lean: upload volume, verification outcomes, and the
-					latest runs that still need attention.
-				</p>
-			</div>
-
-			<div class="inline-actions">
-				<a class="button" href={resolve('/imports')}>Import new leads</a>
-				<a class="button secondary" href={resolve('/verify')}>Run verification</a>
-			</div>
+<div class="stagger mx-auto max-w-6xl space-y-8 px-8 py-10">
+	<!-- Page header -->
+	<header class="flex flex-wrap items-end justify-between gap-6 border-b border-border pb-8">
+		<div>
+			<p class="mb-1 font-mono text-xs font-medium uppercase tracking-widest text-signal">Dashboard</p>
+			<h1 class="font-display text-4xl font-light tracking-tight text-ink">
+				At a glance
+			</h1>
+			<p class="mt-2 max-w-xl text-sm text-ink-soft">
+				Import health, verification coverage, and export readiness in one scan.
+			</p>
 		</div>
-
-		<div class="stat-grid">
-			<StatCard
-				title="Imported rows"
-				value={formatCompactNumber(stats.totalImportedEmails)}
-				footnote="Accepted rows across all uploads"
-			/>
-			<StatCard
-				title="Unique leads"
-				value={formatCompactNumber(stats.totalUniqueLeads)}
-				footnote="Canonical normalized emails in SQLite"
-				accent="ink"
-			/>
-			<StatCard
-				title="Verified"
-				value={formatCompactNumber(stats.totalVerified)}
-				footnote={`${stats.verificationCoverage}% coverage so far`}
-			/>
-			<StatCard
-				title="Export-ready"
-				value={formatCompactNumber(stats.exportReadyCount)}
-				footnote="Currently marked valid"
-				accent="gold"
-			/>
-			<StatCard
-				title="Valid"
-				value={formatCompactNumber(stats.validCount)}
-				footnote="Safest segment for export"
-			/>
-			<StatCard
-				title="Risky"
-				value={formatCompactNumber(stats.riskyCount)}
-				footnote="Review before sending"
-				accent="gold"
-			/>
-			<StatCard
-				title="Invalid"
-				value={formatCompactNumber(stats.invalidCount)}
-				footnote="Should stay out of the sending app"
-				accent="ink"
-			/>
-			<StatCard
-				title="Unknown"
-				value={formatCompactNumber(stats.unknownCount)}
-				footnote="Conservative fallback bucket"
-				accent="ink"
-			/>
+		<div class="flex gap-3">
+			<a
+				href={resolve('/imports')}
+				class="rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-ink/90 active:scale-[0.98]"
+			>
+				Import leads
+			</a>
+			<a
+				href={resolve('/verify')}
+				class="rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink shadow-xs transition-all duration-150 hover:bg-surface-muted"
+			>
+				Run verification
+			</a>
 		</div>
-	</section>
+	</header>
 
-	<section class="two-column">
-		<div class="panel stack">
-			<div class="split">
+	<!-- Quick metrics row -->
+	<div class="flex flex-wrap gap-4">
+		<div class="flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-1.5 font-mono text-xs text-ink-soft">
+			<span class="h-2 w-2 rounded-full bg-success"></span>
+			<strong class="text-ink">{stats.verificationCoverage}%</strong> coverage
+		</div>
+		<div class="flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-1.5 font-mono text-xs text-ink-soft">
+			<strong class="text-ink">{formatCompactNumber(stats.exportReadyCount)}</strong> ready to export
+		</div>
+		<div class="flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-1.5 font-mono text-xs text-ink-soft">
+			<strong class="text-ink">{data.dashboard.recentRuns.length}</strong> recent runs
+		</div>
+	</div>
+
+	<!-- Stat cards grid -->
+	<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+		<StatCard
+			title="Imported rows"
+			value={formatCompactNumber(stats.totalImportedEmails)}
+			footnote="Accepted rows across all uploads"
+		/>
+		<StatCard
+			title="Unique leads"
+			value={formatCompactNumber(stats.totalUniqueLeads)}
+			footnote="Canonical normalized emails"
+			accent="ink"
+		/>
+		<StatCard
+			title="Verified"
+			value={formatCompactNumber(stats.totalVerified)}
+			footnote="{stats.verificationCoverage}% coverage so far"
+		/>
+		<StatCard
+			title="Export-ready"
+			value={formatCompactNumber(stats.exportReadyCount)}
+			footnote="Currently marked valid"
+			accent="gold"
+		/>
+		<StatCard
+			title="Valid"
+			value={formatCompactNumber(stats.validCount)}
+			footnote="Safest segment for export"
+		/>
+		<StatCard
+			title="Risky"
+			value={formatCompactNumber(stats.riskyCount)}
+			footnote="Review before sending"
+			accent="gold"
+		/>
+		<StatCard
+			title="Invalid"
+			value={formatCompactNumber(stats.invalidCount)}
+			footnote="Keep out of the sending app"
+			accent="ink"
+		/>
+		<StatCard
+			title="Unknown"
+			value={formatCompactNumber(stats.unknownCount)}
+			footnote="Conservative fallback bucket"
+			accent="ink"
+		/>
+	</div>
+
+	<!-- Two-column: uploads + runs -->
+	<div class="grid gap-6 lg:grid-cols-2">
+		<!-- Recent uploads -->
+		<section class="rounded-xl border border-border bg-surface p-6 shadow-xs">
+			<div class="mb-5 flex items-start justify-between gap-4">
 				<div>
-					<h2>Recent uploads</h2>
-					<p class="muted">
-						Import outcomes, duplicates linked to existing leads, and file-level summaries.
-					</p>
+					<p class="mb-0.5 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-faint">Uploads</p>
+					<h2 class="text-lg font-semibold tracking-tight text-ink">Recent uploads</h2>
 				</div>
-				<a class="button secondary" href={resolve('/imports')}>Open imports</a>
+				<a
+					href={resolve('/imports')}
+					class="shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-ink-soft transition-colors hover:bg-surface-muted"
+				>
+					View all
+				</a>
 			</div>
 
 			{#if data.dashboard.recentUploads.length > 0}
-				<div class="stack">
+				<div class="space-y-3">
 					{#each data.dashboard.recentUploads as upload (upload.id)}
-						<a class="list-row" href={resolve(`/imports?uploadId=${upload.id}`)}>
-							<div class="split">
-								<div>
-									<strong>{upload.fileName}</strong>
-									<p class="muted">{formatDateTime(upload.createdAt)}</p>
+						<a
+							href={resolve(`/imports?uploadId=${upload.id}`)}
+							class="block rounded-lg border border-border/60 p-4 transition-all duration-150 hover:border-border-strong hover:shadow-sm"
+						>
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="truncate text-sm font-medium text-ink">{upload.fileName}</p>
+									<p class="mt-0.5 text-xs text-ink-faint">{formatDateTime(upload.createdAt)}</p>
 								</div>
 								<StatusBadge
 									label={formatStatusLabel(upload.status)}
@@ -110,40 +142,46 @@
 									compact
 								/>
 							</div>
-							<div class="metric-strip">
-								<span class="capsule">{upload.acceptedRows} accepted</span>
-								<span class="capsule">{upload.rejectedRows} rejected</span>
-								<span class="capsule"
-									>{upload.importSummary?.linkedExistingRows ?? 0} linked duplicates</span
-								>
+							<div class="mt-3 flex gap-3 font-mono text-[11px] text-ink-soft">
+								<span>{upload.acceptedRows} accepted</span>
+								<span class="text-ink-faint">·</span>
+								<span>{upload.rejectedRows} rejected</span>
+								<span class="text-ink-faint">·</span>
+								<span>{upload.importSummary?.linkedExistingRows ?? 0} linked</span>
 							</div>
 						</a>
 					{/each}
 				</div>
 			{:else}
-				<div class="empty-state">No uploads yet. Start by importing a CSV or XLSX file.</div>
-			{/if}
-		</div>
-
-		<div class="panel stack">
-			<div class="split">
-				<div>
-					<h2>Recent verification runs</h2>
-					<p class="muted">
-						Progress is persisted per run so you can resume safely if a run stalls.
-					</p>
+				<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-ink-faint">
+					No uploads yet. Start by importing a CSV or XLSX file.
 				</div>
-				<a class="button secondary" href={resolve('/verify')}>Open verify</a>
+			{/if}
+		</section>
+
+		<!-- Recent runs -->
+		<section class="rounded-xl border border-border bg-surface p-6 shadow-xs">
+			<div class="mb-5 flex items-start justify-between gap-4">
+				<div>
+					<p class="mb-0.5 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-faint">Verification</p>
+					<h2 class="text-lg font-semibold tracking-tight text-ink">Recent runs</h2>
+				</div>
+				<a
+					href={resolve('/verify')}
+					class="shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-ink-soft transition-colors hover:bg-surface-muted"
+				>
+					View all
+				</a>
 			</div>
 
 			{#if data.dashboard.recentRuns.length > 0}
-				<div class="stack">
+				<div class="space-y-3">
 					{#each data.dashboard.recentRuns as run (run.id)}
-						<div class="list-row">
-							<div class="split">
+						<div class="rounded-lg border border-border/60 p-4">
+							<div class="flex items-start justify-between gap-3">
 								<div>
-									<strong>{run.totalLeads} leads in scope</strong>
-									<p class="muted">Started {formatDateTime(run.startedAt ?? run.createdAt)}</p>
+									<p class="text-sm font-medium text-ink">{run.totalLeads} leads in scope</p>
+									<p class="mt-0.5 text-xs text-ink-faint">Started {formatDateTime(run.startedAt ?? run.createdAt)}</p>
 								</div>
 								<StatusBadge
 									label={formatStatusLabel(run.status)}
@@ -151,24 +189,26 @@
 									compact
 								/>
 							</div>
-							<div class="progress-track" aria-label="Run progress">
-								<div
-									class="progress-fill"
-									style={`width: ${progressPercent(run.processedCount, run.totalLeads)}%`}
-								></div>
-							</div>
-							<div class="split">
-								<p class="muted">{run.processedCount} / {run.totalLeads} processed</p>
-								<p class="mono">{progressPercent(run.processedCount, run.totalLeads)}%</p>
+							<div class="mt-3">
+								<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-muted">
+									<div
+										class="h-full rounded-full bg-gradient-to-r from-signal to-warning transition-all duration-300"
+										style="width: {progressPercent(run.processedCount, run.totalLeads)}%"
+									></div>
+								</div>
+								<div class="mt-1.5 flex items-center justify-between font-mono text-[11px] text-ink-soft">
+									<span>{run.processedCount} / {run.totalLeads}</span>
+									<span>{progressPercent(run.processedCount, run.totalLeads)}%</span>
+								</div>
 							</div>
 						</div>
 					{/each}
 				</div>
 			{:else}
-				<div class="empty-state">
-					No verification runs yet. The verify page can start and resume them.
+				<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-ink-faint">
+					No verification runs yet.
 				</div>
 			{/if}
-		</div>
-	</section>
+		</section>
+	</div>
 </div>

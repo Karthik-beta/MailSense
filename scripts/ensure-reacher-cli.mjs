@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 
-const version = '0.11.6';
+const version = '0.11.7';
 const rootDir = process.cwd();
 const installRoot = resolve(rootDir, '.reacher');
 const installDirectory = resolve(installRoot, 'bin');

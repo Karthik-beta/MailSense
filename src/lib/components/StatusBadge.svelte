@@ -9,50 +9,28 @@
 		compact?: boolean;
 	}>();
 
-	const toneClass = $derived(`tone-${tone}`);
+	const toneStyles: Record<string, string> = {
+		success: 'bg-success-soft text-success border-success/15',
+		warning: 'bg-warning-soft text-warning border-warning/15',
+		danger: 'bg-danger-soft text-danger border-danger/15',
+		accent: 'bg-signal-soft text-signal border-signal/15',
+		neutral: 'bg-surface-muted text-ink-soft border-border'
+	};
+
+	const dotStyles: Record<string, string> = {
+		success: 'bg-success',
+		warning: 'bg-warning',
+		danger: 'bg-danger',
+		accent: 'bg-signal',
+		neutral: 'bg-ink-faint'
+	};
 </script>
 
-<span class={`badge ${toneClass} ${compact ? 'compact' : ''}`}>{label}</span>
-
-<style>
-	.badge {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.45rem 0.72rem;
-		border-radius: 999px;
-		font-size: 0.84rem;
-		font-weight: 800;
-		letter-spacing: -0.02em;
-		white-space: nowrap;
-	}
-
-	.badge.compact {
-		padding: 0.34rem 0.6rem;
-		font-size: 0.78rem;
-	}
-
-	.badge.tone-success {
-		background: rgba(15, 118, 110, 0.14);
-		color: #0a5c55;
-	}
-
-	.badge.tone-warning {
-		background: rgba(185, 131, 34, 0.16);
-		color: #86560f;
-	}
-
-	.badge.tone-danger {
-		background: rgba(181, 70, 51, 0.14);
-		color: #8c3020;
-	}
-
-	.badge.tone-accent {
-		background: rgba(41, 98, 255, 0.12);
-		color: #2747a5;
-	}
-
-	.badge.tone-neutral {
-		background: rgba(30, 45, 42, 0.09);
-		color: #4e615d;
-	}
-</style>
+<span
+	class="inline-flex items-center gap-1.5 rounded-md border font-mono text-[11px] font-medium uppercase tracking-wider
+		{toneStyles[tone]}
+		{compact ? 'px-2 py-0.5' : 'px-2.5 py-1'}"
+>
+	<span class="h-1.5 w-1.5 rounded-full {dotStyles[tone]}"></span>
+	{label}
+</span>

@@ -29,7 +29,7 @@
 	let currentRun = $state<PageData['runs'][number] | null>(null);
 	let bulkMessage = $state<{ type: 'error' | 'success' | 'warning'; text: string } | null>(null);
 	let isRunBusy = $state(false);
-	let autoAdvance = $state(false);
+	let autoAdvance = $state(true);
 	let timer: ReturnType<typeof setTimeout> | null = null;
 
 	let activeRun = $derived(
@@ -118,20 +118,21 @@
 		}
 
 		currentRun = result;
-		autoAdvance = true;
 		bulkMessage = {
-			type: result.totalLeads > 0 ? 'success' : 'warning',
+			type: result.totalLeads > 0 ? (autoAdvance ? 'success' : 'warning') : 'warning',
 			text:
 				result.totalLeads > 0
-					? `Run created for ${result.totalLeads} leads. Processing will advance in small chunks.`
+					? autoAdvance
+						? `Run created for ${result.totalLeads} leads. Processing will advance automatically.`
+						: `Run created for ${result.totalLeads} leads. Process the first chunk when ready.`
 					: 'No matching leads were queued for verification.'
 		};
 		isRunBusy = false;
 
-		if (result.totalLeads > 0) {
+		await invalidateAll();
+
+		if (result.totalLeads > 0 && autoAdvance) {
 			await processCurrentRun();
-		} else {
-			await invalidateAll();
 		}
 	};
 
@@ -176,44 +177,54 @@
 
 	const resumeRun = async (run: PageData['runs'][number]) => {
 		currentRun = run;
-		autoAdvance = true;
-		bulkMessage = { type: 'warning', text: 'Resuming the selected run.' };
-		await processCurrentRun();
+		bulkMessage = {
+			type: 'warning',
+			text: autoAdvance
+				? 'Resuming the selected run.'
+				: 'Run selected. Use Process next chunk when ready.'
+		};
+
+		if (autoAdvance) {
+			await processCurrentRun();
+		}
 	};
 </script>
 
-<div class="page-shell">
-	<section class="hero-panel stack">
-		<div class="split">
-			<div class="section-intro">
-				<span class="kicker">Verify</span>
-				<h1>Run manual checks immediately, then push bulk verification at a safe pace.</h1>
-				<p>
-					Bulk runs advance through explicit API calls instead of an always-on worker, which keeps
-					the app scale-to-zero friendly on Railway while verification still runs inside the same
-					service.
-				</p>
-			</div>
-			<div class="metric-strip">
-				<span class="capsule">{data.unverifiedTotal} unverified leads</span>
-				<span class="capsule">Embedded verifier, no extra service</span>
-				<span class="capsule">Chunked runs, conservative pacing</span>
-			</div>
+<div class="stagger mx-auto max-w-6xl space-y-8 px-8 py-10">
+	<!-- Page header -->
+	<header class="border-b border-border pb-8">
+		<p class="mb-1 font-mono text-xs font-medium uppercase tracking-widest text-signal">Verify</p>
+		<h1 class="font-display text-4xl font-light tracking-tight text-ink">
+			Email verification
+		</h1>
+		<p class="mt-2 max-w-xl text-sm text-ink-soft">
+			Run manual checks immediately, then push bulk verification at a safe pace. Runs advance through
+			explicit API calls — scale-to-zero friendly.
+		</p>
+		<div class="mt-4 flex flex-wrap gap-3 font-mono text-xs text-ink-soft">
+			<span class="rounded-md bg-surface-muted px-2.5 py-1"><strong class="text-ink">{data.unverifiedTotal}</strong> unverified</span>
+			{#if activeRun}
+				<span class="rounded-md bg-signal-soft px-2.5 py-1 text-signal"><strong>{currentProgress}%</strong> active run</span>
+			{/if}
+			<span class="rounded-md bg-surface-muted px-2.5 py-1">Embedded verifier</span>
 		</div>
-	</section>
+	</header>
 
-	<section class="two-column">
-		<div class="panel stack">
-			<div>
-				<h2>Manual single-email verification</h2>
-				<p class="muted">Useful for spot checks before or after a larger import.</p>
+	<!-- Two-column: manual check + bulk run -->
+	<div class="grid gap-6 lg:grid-cols-2">
+		<!-- Manual check -->
+		<section class="rounded-xl border border-border bg-surface p-6 shadow-xs">
+			<div class="mb-5">
+				<p class="mb-0.5 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-faint">Manual check</p>
+				<h2 class="text-lg font-semibold tracking-tight text-ink">Single-email verification</h2>
+				<p class="mt-1 text-sm text-ink-soft">Spot check before or after a larger import.</p>
 			</div>
 
-			<form class="stack" onsubmit={verifySingle}>
-				<div class="field">
-					<label for="manual-email">Email address</label>
+			<form class="space-y-4" onsubmit={verifySingle}>
+				<div>
+					<label for="manual-email" class="mb-1.5 block font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">Email address</label>
 					<input
-						class="input"
+						class="w-full rounded-lg border border-border bg-paper px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none transition-colors focus:border-signal/40 focus:ring-2 focus:ring-signal/10"
 						id="manual-email"
 						type="email"
 						bind:value={manualEmail}
@@ -221,171 +232,174 @@
 						required
 					/>
 				</div>
-				<div class="form-actions">
-					<button class="button" type="submit" disabled={isManualBusy}>
-						{isManualBusy ? 'Verifying...' : 'Verify email'}
-					</button>
-				</div>
+				<button
+					type="submit"
+					disabled={isManualBusy}
+					class="rounded-lg bg-ink px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-ink/90 disabled:cursor-wait disabled:opacity-50 active:scale-[0.98]"
+				>
+					{isManualBusy ? 'Verifying…' : 'Verify email'}
+				</button>
 			</form>
 
 			{#if manualMessage}
-				<div class={`message ${manualMessage.type === 'error' ? 'error' : ''}`}>
+				<div class="mt-4 rounded-lg border px-4 py-3 text-sm font-medium {manualMessage.type === 'error' ? 'border-danger/20 bg-danger-soft text-danger' : 'border-success/20 bg-success-soft text-success'}">
 					{manualMessage.text}
 				</div>
 			{/if}
 
 			{#if manualResult}
-				<div class="list-row">
-					<div class="split">
-						<strong>{manualResult.email}</strong>
-						<p class="muted">{formatDateTime(manualResult.verifiedAt)}</p>
+				<div class="mt-4 rounded-lg border border-border/60 p-4">
+					<div class="flex items-start justify-between gap-3">
+						<p class="text-sm font-medium text-ink">{manualResult.email}</p>
+						<p class="text-xs text-ink-faint">{formatDateTime(manualResult.verifiedAt)}</p>
 					</div>
-					<div class="metric-strip">
-						<StatusBadge
-							label={formatStatusLabel(manualResult.verificationStatus)}
-							tone={toneForVerificationStatus(manualResult.verificationStatus)}
-							compact
-						/>
-						<StatusBadge
-							label={formatStatusLabel(manualResult.riskLevel)}
-							tone={toneForRisk(manualResult.riskLevel)}
-							compact
-						/>
+					<div class="mt-2 flex flex-wrap gap-2">
+						<StatusBadge label={formatStatusLabel(manualResult.verificationStatus)} tone={toneForVerificationStatus(manualResult.verificationStatus)} compact />
+						<StatusBadge label={formatStatusLabel(manualResult.riskLevel)} tone={toneForRisk(manualResult.riskLevel)} compact />
 					</div>
-					<p class="muted">{manualResult.reason}</p>
+					<p class="mt-2 text-xs text-ink-soft">{manualResult.reason}</p>
 				</div>
 			{/if}
-		</div>
+		</section>
 
-		<div class="panel stack">
-			<div>
-				<h2>Bulk verification</h2>
-				<p class="muted">
-					Queue either all unverified leads or limit the run to a specific upload.
-				</p>
+		<!-- Bulk run -->
+		<section class="rounded-xl border border-border bg-surface p-6 shadow-xs">
+			<div class="mb-5">
+				<p class="mb-0.5 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-faint">Bulk run</p>
+				<h2 class="text-lg font-semibold tracking-tight text-ink">Queue a verification run</h2>
+				<p class="mt-1 text-sm text-ink-soft">All unverified leads or a specific upload.</p>
 			</div>
 
-			<div class="field">
-				<label for="bulk-upload">Limit to one upload</label>
-				<select class="select" id="bulk-upload" bind:value={selectedUploadId}>
-					<option value="">All unverified leads</option>
-					{#each data.uploads as upload (upload.id)}
-						<option value={upload.id}>{upload.fileName}</option>
-					{/each}
-				</select>
-			</div>
+			<div class="space-y-4">
+				<div>
+					<label for="bulk-upload" class="mb-1.5 block font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">Limit to upload</label>
+					<select class="w-full rounded-lg border border-border bg-paper px-3.5 py-2.5 text-sm text-ink outline-none transition-colors focus:border-signal/40 focus:ring-2 focus:ring-signal/10" id="bulk-upload" bind:value={selectedUploadId}>
+						<option value="">All unverified leads</option>
+						{#each data.uploads as upload (upload.id)}
+							<option value={upload.id}>{upload.fileName}</option>
+						{/each}
+					</select>
+				</div>
 
-			<div class="form-actions">
-				<button class="button" type="button" onclick={createRun} disabled={isRunBusy}>
-					{isRunBusy ? 'Working...' : 'Start safe bulk run'}
-				</button>
-				{#if activeRun && activeRun.status !== 'completed'}
+				<label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-paper-warm px-4 py-3">
+					<input type="checkbox" bind:checked={autoAdvance} class="h-4 w-4 rounded accent-signal" />
+					<span class="text-sm text-ink-soft">Continue automatically until completion or pause</span>
+				</label>
+
+				<div class="flex flex-wrap gap-3">
 					<button
-						class="button secondary"
 						type="button"
-						onclick={() => void processCurrentRun()}
+						onclick={createRun}
 						disabled={isRunBusy}
+						class="rounded-lg bg-ink px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-ink/90 disabled:cursor-wait disabled:opacity-50 active:scale-[0.98]"
 					>
-						Process next chunk
+						{isRunBusy ? 'Working…' : 'Start bulk run'}
 					</button>
-				{/if}
+					{#if activeRun && activeRun.status !== 'completed'}
+						<button
+							type="button"
+							onclick={() => void processCurrentRun()}
+							disabled={isRunBusy}
+							class="rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink shadow-xs transition-all duration-150 hover:bg-surface-muted disabled:opacity-50"
+						>
+							Process next chunk
+						</button>
+					{/if}
+				</div>
 			</div>
 
 			{#if bulkMessage}
-				<div
-					class={`message ${bulkMessage.type === 'error' ? 'error' : bulkMessage.type === 'warning' ? 'warning' : ''}`}
-				>
+				<div class="mt-4 rounded-lg border px-4 py-3 text-sm font-medium
+					{bulkMessage.type === 'error' ? 'border-danger/20 bg-danger-soft text-danger' : bulkMessage.type === 'warning' ? 'border-warning/20 bg-warning-soft text-warning' : 'border-success/20 bg-success-soft text-success'}">
 					{bulkMessage.text}
 				</div>
 			{/if}
+		</section>
+	</div>
 
-			{#if activeRun}
-				<div class="list-row">
-					<div class="split">
-						<div>
-							<strong>Current run</strong>
-							<p class="muted">Created {formatDateTime(activeRun.createdAt)}</p>
-						</div>
-						<StatusBadge
-							label={formatStatusLabel(activeRun.status)}
-							tone={toneForRunStatus(activeRun.status)}
-							compact
-						/>
-					</div>
-					<div class="progress-track">
-						<div class="progress-fill" style={`width: ${currentProgress}%`}></div>
-					</div>
-					<div class="split">
-						<p class="muted">{activeRun.processedCount} of {activeRun.totalLeads} processed</p>
-						<p class="mono">{currentProgress}%</p>
-					</div>
-					<div class="metric-strip">
-						<span class="capsule">{activeRun.validCount} valid</span>
-						<span class="capsule">{activeRun.riskyCount} risky</span>
-						<span class="capsule">{activeRun.invalidCount} invalid</span>
-						<span class="capsule">{activeRun.unknownCount} unknown</span>
-					</div>
-					{#if activeRun.errorMessage}
-						<p class="muted">{activeRun.errorMessage}</p>
-					{/if}
+	<!-- Active run progress -->
+	{#if activeRun}
+		<section class="rounded-xl border border-border bg-surface p-6 shadow-xs">
+			<div class="mb-4 flex flex-wrap items-start justify-between gap-4">
+				<div>
+					<p class="mb-0.5 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-faint">Current run</p>
+					<h2 class="text-lg font-semibold tracking-tight text-ink">Progress</h2>
+					<p class="mt-0.5 text-xs text-ink-faint">Created {formatDateTime(activeRun.createdAt)}</p>
+				</div>
+				<StatusBadge label={formatStatusLabel(activeRun.status)} tone={toneForRunStatus(activeRun.status)} />
+			</div>
+
+			<div class="mb-2 h-2.5 w-full overflow-hidden rounded-full bg-surface-muted">
+				<div
+					class="h-full rounded-full bg-gradient-to-r from-signal to-warning transition-all duration-300"
+					style="width: {currentProgress}%"
+				></div>
+			</div>
+			<div class="mb-4 flex items-center justify-between font-mono text-xs text-ink-soft">
+				<span>{activeRun.processedCount} of {activeRun.totalLeads} processed</span>
+				<span class="font-semibold text-ink">{currentProgress}%</span>
+			</div>
+
+			<div class="flex flex-wrap gap-3 font-mono text-xs text-ink-soft">
+				<span class="rounded-md bg-success-soft px-2.5 py-1 text-success">{activeRun.validCount} valid</span>
+				<span class="rounded-md bg-warning-soft px-2.5 py-1 text-warning">{activeRun.riskyCount} risky</span>
+				<span class="rounded-md bg-danger-soft px-2.5 py-1 text-danger">{activeRun.invalidCount} invalid</span>
+				<span class="rounded-md bg-surface-muted px-2.5 py-1">{activeRun.unknownCount} unknown</span>
+			</div>
+
+			{#if activeRun.errorMessage}
+				<div class="mt-4 rounded-lg border border-warning/20 bg-warning-soft px-4 py-3 text-sm font-medium text-warning">
+					{activeRun.errorMessage}
 				</div>
 			{/if}
-		</div>
-	</section>
+		</section>
+	{/if}
 
-	<section class="panel stack">
-		<div class="split">
-			<div>
-				<h2>Recent runs</h2>
-				<p class="muted">Completed runs stay visible, and paused runs can be resumed from here.</p>
-			</div>
+	<!-- Run history -->
+	<section class="rounded-xl border border-border bg-surface shadow-xs">
+		<div class="border-b border-border px-6 py-4">
+			<p class="mb-0.5 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-faint">History</p>
+			<h2 class="text-sm font-semibold text-ink">Recent runs</h2>
 		</div>
 
 		{#if data.runs.length > 0}
-			<div class="table-wrap">
-				<table class="data-table">
+			<div class="overflow-x-auto">
+				<table class="w-full min-w-[700px] border-collapse text-sm">
 					<thead>
-						<tr>
-							<th>Status</th>
-							<th>Started</th>
-							<th>Progress</th>
-							<th>Breakdown</th>
-							<th>Action</th>
+						<tr class="border-b border-border bg-surface-muted/50">
+							<th class="px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">Status</th>
+							<th class="px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">Started</th>
+							<th class="px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">Progress</th>
+							<th class="px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">Breakdown</th>
+							<th class="px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">Action</th>
 						</tr>
 					</thead>
 					<tbody>
 						{#each data.runs as run (run.id)}
-							<tr>
-								<td>
-									<StatusBadge
-										label={formatStatusLabel(run.status)}
-										tone={toneForRunStatus(run.status)}
-										compact
-									/>
+							<tr class="border-b border-border/60 transition-colors hover:bg-surface-muted/30">
+								<td class="px-4 py-3">
+									<StatusBadge label={formatStatusLabel(run.status)} tone={toneForRunStatus(run.status)} compact />
 								</td>
-								<td>{formatDateTime(run.startedAt ?? run.createdAt)}</td>
-								<td
-									>{run.processedCount} / {run.totalLeads} ({progressPercent(
-										run.processedCount,
-										run.totalLeads
-									)}%)</td
-								>
-								<td
-									>{run.validCount} valid · {run.riskyCount} risky · {run.invalidCount} invalid · {run.unknownCount}
-									unknown</td
-								>
-								<td>
+								<td class="px-4 py-3 text-ink-soft">{formatDateTime(run.startedAt ?? run.createdAt)}</td>
+								<td class="px-4 py-3 font-mono text-xs">
+									{run.processedCount} / {run.totalLeads}
+									<span class="text-ink-faint">({progressPercent(run.processedCount, run.totalLeads)}%)</span>
+								</td>
+								<td class="px-4 py-3 font-mono text-xs text-ink-soft">
+									{run.validCount}v · {run.riskyCount}r · {run.invalidCount}i · {run.unknownCount}u
+								</td>
+								<td class="px-4 py-3">
 									{#if run.status !== 'completed'}
 										<button
-											class="button ghost"
 											type="button"
 											onclick={() => void resumeRun(run)}
 											disabled={isRunBusy}
+											class="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-ink-soft transition-colors hover:bg-surface-muted disabled:opacity-50"
 										>
 											Resume
 										</button>
 									{:else}
-										<span class="muted">Done</span>
+										<span class="text-xs text-ink-faint">Done</span>
 									{/if}
 								</td>
 							</tr>
@@ -394,7 +408,9 @@
 				</table>
 			</div>
 		{:else}
-			<div class="empty-state">No runs recorded yet.</div>
+			<div class="p-8 text-center text-sm text-ink-faint">
+				No runs recorded yet.
+			</div>
 		{/if}
 	</section>
 </div>

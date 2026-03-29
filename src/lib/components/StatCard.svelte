@@ -10,53 +10,18 @@
 		footnote?: string;
 		accent?: 'accent' | 'gold' | 'ink';
 	}>();
+
+	const accentColor: Record<string, string> = {
+		accent: 'border-t-signal',
+		gold: 'border-t-warning',
+		ink: 'border-t-ink-soft'
+	};
 </script>
 
-<article class="stat-card" data-accent={accent}>
-	<p>{title}</p>
-	<strong>{value}</strong>
+<article class="rounded-xl border border-border bg-surface p-5 shadow-xs transition-shadow duration-200 hover:shadow-sm {accentColor[accent]} border-t-2">
+	<p class="mb-1 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-soft">{title}</p>
+	<p class="font-display text-3xl font-light tracking-tight text-ink">{value}</p>
 	{#if footnote}
-		<span>{footnote}</span>
+		<p class="mt-2 text-xs text-ink-faint">{footnote}</p>
 	{/if}
 </article>
-
-<style>
-	.stat-card {
-		display: grid;
-		gap: 0.55rem;
-		padding: 1.1rem 1.15rem;
-		border-radius: 1.25rem;
-		background: rgba(255, 253, 249, 0.8);
-		border: 1px solid rgba(30, 45, 42, 0.06);
-		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
-	}
-
-	.stat-card p {
-		font-size: 0.86rem;
-		font-weight: 700;
-		color: #5d6f6c;
-	}
-
-	.stat-card strong {
-		font-size: clamp(1.5rem, 3vw, 2.2rem);
-		letter-spacing: -0.06em;
-		line-height: 1;
-	}
-
-	.stat-card span {
-		font-size: 0.86rem;
-		color: #6b7d79;
-	}
-
-	.stat-card[data-accent='accent'] strong {
-		color: #0a5c55;
-	}
-
-	.stat-card[data-accent='gold'] strong {
-		color: #9a6313;
-	}
-
-	.stat-card[data-accent='ink'] strong {
-		color: #1e2d2a;
-	}
-</style>
