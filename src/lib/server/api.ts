@@ -14,6 +14,7 @@ import {
 	verifySingleEmail
 } from './verification';
 import { checkSetupReadiness } from './setup';
+import { runDiagnostics } from './diagnostics';
 
 type ApiVariables = {
 	user: User | null;
@@ -196,6 +197,18 @@ export const createApiApp = (event: RequestEvent) => {
 		} catch (error) {
 			return c.json(
 				{ error: error instanceof Error ? error.message : 'Setup check failed.' },
+				500
+			);
+		}
+	});
+
+	app.get('/diagnostics', async (c) => {
+		try {
+			const result = await runDiagnostics();
+			return c.json(result);
+		} catch (error) {
+			return c.json(
+				{ error: error instanceof Error ? error.message : 'Diagnostics check failed.' },
 				500
 			);
 		}

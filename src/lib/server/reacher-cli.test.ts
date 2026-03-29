@@ -15,7 +15,8 @@ vi.mock('$lib/server/config', () => ({
 }));
 
 // Import after mock is set up
-const { buildCliArguments } = await import('$lib/server/reacher-cli');
+const { buildCliArguments, parseCliOutput, isEmbeddedReacherExecutable, getEmbeddedReacherVersion } =
+	await import('$lib/server/reacher-cli');
 
 describe('buildCliArguments', () => {
 	beforeEach(() => {
@@ -93,5 +94,71 @@ describe('buildCliArguments', () => {
 		mockConfig.reacherCheckGravatar = true;
 		const args = buildCliArguments('target@example.com');
 		expect(args[args.length - 1]).toBe('target@example.com');
+	});
+});
+
+describe('parseCliOutput', () => {
+	const validOutput = JSON.stringify({
+		input: 'test@example.com',
+		is_reachable: 'safe',
+		syntax: { is_valid_syntax: true, domain: 'example.com', username: 'test' },
+		misc: { is_disposable: false, is_role_account: false, is_b2c: false },
+		mx: { accepts_mail: true, records: ['mx.example.com'] },
+		smtp: {
+			can_connect_smtp: true,
+			has_full_inbox: false,
+			is_catch_all: false,
+			is_deliverable: true,
+			is_disabled: false
+		}
+	});
+
+	it('parses valid JSON output', () => {
+		const result = parseCliOutput(validOutput);
+		expect(result.input).toBe('test@example.com');
+		expect(result.is_reachable).toBe('safe');
+		expect(result.syntax.is_valid_syntax).toBe(true);
+	});
+
+	it('parses JSON with leading noise', () => {
+		const result = parseCliOutput('some rust log noise\n' + validOutput);
+		expect(result.input).toBe('test@example.com');
+		expect(result.is_reachable).toBe('safe');
+	});
+
+	it('throws on empty output', () => {
+		expect(() => parseCliOutput('')).toThrow('no output');
+	});
+
+	it('throws on whitespace-only output', () => {
+		expect(() => parseCliOutput('   \n\t  ')).toThrow('no output');
+	});
+
+	it('throws on non-JSON output', () => {
+		expect(() => parseCliOutput('not json at all')).toThrow('invalid JSON');
+	});
+
+	it('throws on JSON missing required fields', () => {
+		expect(() => parseCliOutput('{"foo": "bar"}')).toThrow('unexpected JSON');
+	});
+
+	it('throws on JSON missing syntax object', () => {
+		expect(() =>
+			parseCliOutput(JSON.stringify({ input: 'x@y.com', is_reachable: 'safe', syntax: null }))
+		).toThrow('unexpected JSON');
+	});
+});
+
+describe('isEmbeddedReacherExecutable', () => {
+	it('returns a boolean', () => {
+		const result = isEmbeddedReacherExecutable();
+		expect(typeof result).toBe('boolean');
+	});
+});
+
+describe('getEmbeddedReacherVersion', () => {
+	it('returns a string or null', () => {
+		const result = getEmbeddedReacherVersion();
+		expect(result === null || typeof result === 'string').toBe(true);
 	});
 });

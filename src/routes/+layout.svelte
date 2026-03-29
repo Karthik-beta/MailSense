@@ -16,7 +16,8 @@
 		{ href: '/imports', label: 'Imports', icon: '↑' },
 		{ href: '/leads', label: 'Leads', icon: '◉' },
 		{ href: '/verify', label: 'Verify', icon: '✓' },
-		{ href: '/setup', label: 'Setup', icon: '⚙' }
+		{ href: '/setup', label: 'Setup', icon: '⚙' },
+		{ href: '/diagnostics', label: 'Diagnostics', icon: '⚕' }
 	] as const;
 
 	const isActive = (href: string) =>

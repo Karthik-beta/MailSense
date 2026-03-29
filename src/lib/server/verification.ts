@@ -9,6 +9,11 @@ import {
 	type ReacherSmtpDetails,
 	type ReacherWrappedError
 } from '$lib/server/reacher-cli';
+import {
+	classifyProcessError,
+	classifyReacherFieldError,
+	type ClassifiedFailure
+} from '$lib/server/failure-classification';
 import type {
 	LeadFilters,
 	RiskLevel,
@@ -26,9 +31,23 @@ type VerificationDecision = {
 	reason: string;
 	details: Record<string, unknown>;
 	technicalFailure: boolean;
+	failureClassification?: ClassifiedFailure | null;
 };
 
 const sleep = (duration: number) => new Promise((resolve) => setTimeout(resolve, duration));
+
+const maskEmail = (email: string) => {
+	const [local, domain] = email.split('@');
+	if (!local || !domain) return '***';
+	return `${local[0]}***@${domain}`;
+};
+
+const logVerification = (
+	phase: string,
+	data: Record<string, unknown>
+) => {
+	console.log(JSON.stringify({ component: 'verification', phase, ts: new Date().toISOString(), ...data }));
+};
 
 const syncRunMetrics = (runId: string) => {
 	const metrics = db
@@ -127,7 +146,8 @@ const mapVerificationResult = (result: ReacherCliOutput): VerificationDecision =
 			riskLevel: 'invalid',
 			reason: 'Invalid email syntax',
 			details,
-			technicalFailure: false
+			technicalFailure: false,
+			failureClassification: null
 		};
 	}
 
@@ -140,7 +160,8 @@ const mapVerificationResult = (result: ReacherCliOutput): VerificationDecision =
 			riskLevel: 'invalid',
 			reason,
 			details,
-			technicalFailure: false
+			technicalFailure: false,
+			failureClassification: null
 		};
 	}
 
@@ -167,7 +188,8 @@ const mapVerificationResult = (result: ReacherCliOutput): VerificationDecision =
 			riskLevel: riskSignals.length > 0 ? 'risky' : 'valid',
 			reason: riskSignals[0] ?? 'Mailbox appears reachable',
 			details,
-			technicalFailure: false
+			technicalFailure: false,
+			failureClassification: null
 		};
 	}
 
@@ -177,7 +199,8 @@ const mapVerificationResult = (result: ReacherCliOutput): VerificationDecision =
 			riskLevel: 'risky',
 			reason: riskSignals[0] ?? firstFailureReason ?? 'Verification returned a risky result',
 			details,
-			technicalFailure: false
+			technicalFailure: false,
+			failureClassification: null
 		};
 	}
 
@@ -186,12 +209,55 @@ const mapVerificationResult = (result: ReacherCliOutput): VerificationDecision =
 		riskLevel: 'unknown',
 		reason: firstFailureReason ?? 'Verification was inconclusive',
 		details,
-		technicalFailure: coreErrors.length > 0
+		technicalFailure: coreErrors.length > 0,
+		failureClassification: coreErrors.length > 0
+			? classifyReacherFieldError(
+				coreErrors[0].type,
+				coreErrors[0].message,
+				coreErrorDescriptions[0] ?? null
+			)
+			: null
 	};
 };
 
 const runReacherVerification = async (email: string) => {
-	return mapVerificationResult(await runEmbeddedReacher(email));
+	logVerification('attempt_start', {
+		email: maskEmail(email),
+		timeoutMs: appConfig.verificationTimeoutMs,
+		fromEmail: appConfig.reacherFromEmail ? maskEmail(appConfig.reacherFromEmail) : null,
+		helloName: appConfig.reacherHelloName ?? null,
+		smtpPort: appConfig.reacherSmtpPort
+	});
+
+	try {
+		const result = await runEmbeddedReacher(email);
+		const decision = mapVerificationResult(result);
+
+		logVerification('attempt_complete', {
+			email: maskEmail(email),
+			reachable: result.is_reachable,
+			status: decision.verificationStatus,
+			riskLevel: decision.riskLevel,
+			technicalFailure: decision.technicalFailure,
+			failureClass: decision.failureClassification?.failureClass ?? null
+		});
+
+		return decision;
+	} catch (error) {
+		const classification = classifyProcessError(error);
+
+		logVerification('attempt_error', {
+			email: maskEmail(email),
+			failureClass: classification.failureClass,
+			summary: classification.summary,
+			isAppSide: classification.isAppSide,
+			isInfrastructureSide: classification.isInfrastructureSide
+		});
+
+		throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+			classification
+		});
+	}
 };
 
 const persistLeadVerification = (
@@ -388,12 +454,21 @@ export const verifySingleEmail = async (email: string) => {
 	try {
 		decision = await runReacherVerification(normalizedEmailValue);
 	} catch (error) {
+		const classification = (error as { classification?: ClassifiedFailure }).classification
+			?? classifyProcessError(error);
 		decision = {
 			verificationStatus: 'unknown',
 			riskLevel: 'unknown',
 			reason: error instanceof Error ? error.message : 'Verification failed.',
-			details: { error: error instanceof Error ? error.message : 'Unknown error' },
-			technicalFailure: true
+			details: {
+				error: error instanceof Error ? error.message : 'Unknown error',
+				failureClass: classification.failureClass,
+				failureSummary: classification.summary,
+				isAppSide: classification.isAppSide,
+				isInfrastructureSide: classification.isInfrastructureSide
+			},
+			technicalFailure: true,
+			failureClassification: classification
 		};
 	}
 
@@ -409,6 +484,8 @@ export const verifySingleEmail = async (email: string) => {
 };
 
 export const processVerificationRun = async (runId: string) => {
+	logVerification('run_chunk_start', { runId });
+
 	const run = getRunRecord(runId);
 	if (!run) {
 		throw new Error('Verification run not found.');
@@ -478,7 +555,8 @@ export const processVerificationRun = async (runId: string) => {
 					riskLevel: 'unknown',
 					reason: 'Lead record was missing when the run resumed.',
 					details: { error: 'missing_lead' },
-					technicalFailure: true
+					technicalFailure: true,
+					failureClassification: { failureClass: 'app_error', summary: 'Lead record was missing.', rawError: 'missing_lead', isAppSide: true, isInfrastructureSide: false }
 				};
 				persistLeadVerification(leadId, runId, fallbackDecision, new Date());
 				incrementRunMetrics(runId, fallbackDecision);
@@ -489,15 +567,22 @@ export const processVerificationRun = async (runId: string) => {
 			try {
 				decision = await runReacherVerification(lead.normalizedEmail);
 			} catch (error) {
+				const classification = (error as { classification?: ClassifiedFailure }).classification
+					?? classifyProcessError(error);
 				decision = {
 					verificationStatus: 'unknown',
 					riskLevel: 'unknown',
 					reason: error instanceof Error ? error.message : 'Verification failed.',
 					details: {
 						error: error instanceof Error ? error.message : 'Unknown error',
-						input: lead.normalizedEmail
+						input: lead.normalizedEmail,
+						failureClass: classification.failureClass,
+						failureSummary: classification.summary,
+						isAppSide: classification.isAppSide,
+						isInfrastructureSide: classification.isInfrastructureSide
 					},
-					technicalFailure: true
+					technicalFailure: true,
+					failureClassification: classification
 				};
 			}
 
@@ -540,5 +625,37 @@ export const processVerificationRun = async (runId: string) => {
 		.where(eq(verificationRuns.id, runId))
 		.run();
 
+	logVerification('run_chunk_complete', {
+		runId,
+		processedCount: refreshedRun.processedCount,
+		totalLeads: refreshedRun.totalLeads,
+		isComplete
+	});
+
 	return getRunRecord(runId);
+};
+
+export const getLatestFailureInfo = () => {
+	const row = db
+		.select({
+			reason: leadVerifications.reason,
+			details: leadVerifications.details,
+			verifiedAt: leadVerifications.verifiedAt
+		})
+		.from(leadVerifications)
+		.where(eq(leadVerifications.technicalFailure, true))
+		.orderBy(desc(leadVerifications.verifiedAt))
+		.limit(1)
+		.get();
+
+	if (!row) return null;
+	const details = row.details as Record<string, unknown> | null;
+	return {
+		reason: row.reason,
+		failureClass: (details?.failureClass as string) ?? null,
+		failureSummary: (details?.failureSummary as string) ?? null,
+		isAppSide: (details?.isAppSide as boolean) ?? null,
+		isInfrastructureSide: (details?.isInfrastructureSide as boolean) ?? null,
+		verifiedAt: row.verifiedAt
+	};
 };

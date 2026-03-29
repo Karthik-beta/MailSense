@@ -293,3 +293,163 @@ The app includes a minimal setup assistant at `/setup` that helps the operator:
 - It does not guarantee that remote mail servers will accept SMTP connections.
 - It does not replace running an actual Reacher verification.
 - DNS resolution confirms the hostname exists, not that SMTP will succeed.
+
+## Diagnostics
+
+The app includes a diagnostics surface at `/diagnostics` and via `GET /api/diagnostics`. It provides
+a comprehensive health check covering the embedded binary, configuration, network readiness, and
+recent failure history.
+
+### What diagnostics check
+
+**Binary health:**
+- Whether the Reacher CLI binary file exists at the configured path.
+- Whether the binary is executable (has `X_OK` permission).
+- The binary's reported version (`--version` output).
+
+**Configuration health:**
+- Whether `REACHER_FROM_EMAIL` is syntactically valid (if set).
+- Whether `REACHER_HELLO_NAME` is syntactically valid (if set).
+- Whether both identity values are set (subdomain configured).
+- Whether the from-email domain matches the hello-name (identity alignment).
+- Effective SMTP port, timeout, pacing, and batch size values.
+
+**Network health:**
+- Whether `REACHER_HELLO_NAME` resolves via DNS (A records).
+- Whether MX records exist for the hello-name domain.
+- Whether SMTP port 25 is reachable from the container to the hello-name IP.
+
+**Last failure:**
+- The most recent verification failure from the database, including its failure class,
+  whether it was app-side or infrastructure-side, and the raw reason.
+
+**Summary:**
+- `appIntegrationHealthy`: binary is installed, executable, has a version, and config is valid.
+- `infrastructureLikelyHealthy`: DNS resolves and SMTP port is reachable (null if no hello-name is configured).
+
+### Diagnostics vs. setup
+
+The `/setup` page runs a lightweight readiness check focused on whether the app can be configured.
+The `/diagnostics` page runs a deep health check focused on whether the app is working correctly
+in the current deployment environment. Use diagnostics to investigate why verifications return
+`unknown` or fail.
+
+## Failure classification
+
+Every verification failure is classified into a structured failure class so operators can tell
+whether a problem is app-side (configuration, binary, parsing) or infrastructure-side (DNS, SMTP,
+remote provider behavior).
+
+### Failure classes
+
+| Class | Side | Meaning |
+|---|---|---|
+| `config_invalid` | App | Local configuration prevents verification from running. |
+| `identity_config_invalid` | App | Subdomain identity config is malformed. |
+| `binary_missing` | App | The Reacher CLI binary was not found. |
+| `binary_unusable` | App | The binary exists but cannot be executed. |
+| `cli_invocation_failure` | App | The CLI process exited with a non-zero code. |
+| `cli_timeout` | App | The CLI process exceeded the configured timeout. |
+| `malformed_output` | App | The CLI returned output that could not be parsed. |
+| `dns_resolution_failure` | Infra | DNS lookup failed for the target domain. |
+| `no_mx_or_smtp_target` | Infra | No MX records or SMTP targets were found. |
+| `smtp_connection_refused` | Infra | The remote SMTP server refused the connection. |
+| `smtp_timeout` | Infra | The SMTP connection timed out. |
+| `remote_ambiguous` | Infra | The remote server gave an inconclusive response (greylisting, catch-all, etc.). |
+| `app_error` | App | An internal app error occurred (persistence, state). |
+| `unknown_failure` | Unknown | The failure could not be classified. |
+
+### How classification works
+
+Classification happens at two levels:
+
+1. **Process-level**: When `runEmbeddedReacher` throws an error (binary missing, timeout, spawn failure,
+   malformed output), the error message is pattern-matched to determine the failure class.
+2. **Field-level**: When Reacher returns a JSON result but a field contains an error object (e.g., DNS
+   failure in the `mx` field, connection refused in the `smtp` field), the error type and message
+   are pattern-matched to classify the infrastructure issue.
+
+Classification never overrides Reacher's verdict. It only annotates failures with structured metadata
+to help operators diagnose problems.
+
+### Where classification appears
+
+- In the `details` column of `leadVerifications` database records (as `failureClass`, `failureSummary`,
+  `isAppSide`, `isInfrastructureSide`).
+- In structured console logs emitted during verification.
+- In the diagnostics page under "Last failure".
+- Accessible via the API in verification responses.
+
+## Troubleshooting verification issues
+
+### Verifications return "unknown"
+
+This is the most common issue. `unknown` means Reacher ran but could not determine deliverability.
+
+1. Open `/diagnostics` and check the health summary.
+2. If **app integration is unhealthy**: fix the binary or config issue shown.
+3. If **infrastructure is unhealthy**: the container cannot reach SMTP servers. Check:
+   - Is outbound port 25 allowed? (Railway Pro plan required.)
+   - Does the hello-name resolve in DNS?
+   - Are MX records configured for your subdomain?
+4. If **both are healthy** but verifications still return unknown: the remote mail server may be
+   greylisting, rate-limiting, or blocking the verification IP. This is expected behavior that
+   Reacher reports honestly.
+
+### Verifications fail with errors
+
+Check the failure class in the lead's verification details or in `/diagnostics`:
+
+- **App-side failures** (binary_missing, cli_timeout, malformed_output, etc.) indicate a deployment
+  or configuration problem. Fix the app environment.
+- **Infrastructure-side failures** (dns_resolution_failure, smtp_connection_refused, smtp_timeout)
+  indicate a network or DNS problem. Check the container's network access and DNS configuration.
+
+### Timeout vs. unknown
+
+- **Timeout** (`cli_timeout`): The Reacher process was killed because it exceeded `VERIFICATION_TIMEOUT_MS`.
+  The remote server may be slow or unreachable. Consider increasing the timeout.
+- **Unknown** (`remote_ambiguous`): Reacher completed but the remote server's response was inconclusive.
+  This is a normal outcome for many domains and is not an error.
+
+## Testing
+
+Run the test suite:
+
+```sh
+bun run test
+```
+
+### What the tests cover
+
+**Failure classification tests** (`failure-classification.test.ts`):
+- Process-level error classification (binary missing, timeout, malformed output, exit codes, signals).
+- Field-level error classification (DNS failures, connection refused, SMTP timeout, greylisting, catch-all).
+- Label and remediation hint generation for all 14 failure classes.
+
+**Reacher CLI tests** (`reacher-cli.test.ts`):
+- CLI argument construction for all configuration combinations.
+- Output parsing for valid JSON, JSON with leading noise, empty output, and malformed payloads.
+- Binary availability and version detection.
+
+**Verification tests** (`verification.test.ts`):
+- Integration of failure classification into the verification pipeline.
+- Classification of different error types during verification.
+- Centralized verifier path consistency (both single and bulk flows use the same code path).
+
+**Diagnostics tests** (`diagnostics.test.ts`):
+- Binary health reporting (installed, executable, version).
+- Configuration health validation (from-email, hello-name, identity alignment).
+- DNS resolution and network health checks.
+- Effective CLI argument reporting.
+
+**Setup tests** (`setup.test.ts`):
+- Readiness check for binary presence, config validity, and DNS resolution.
+
+### What the tests do NOT prove
+
+- Tests do not verify that any email address is actually deliverable.
+- Tests do not make real SMTP connections — network checks are mocked.
+- Tests do not prove that Reacher will produce a specific verdict for a given email.
+- Tests do not validate Railway deployment configuration or volume mounts.
+- Passing tests confirm app-side correctness, not infrastructure readiness.

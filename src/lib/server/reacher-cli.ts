@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, accessSync, constants } from 'node:fs';
 import { resolve } from 'node:path';
 import { appConfig } from '$lib/server/config';
 
@@ -117,6 +117,37 @@ const parseCliOutput = (stdout: string): ReacherCliOutput => {
 export const getEmbeddedReacherBinaryPath = () => getBinaryPath();
 
 export const isEmbeddedReacherAvailable = () => existsSync(getBinaryPath());
+
+export const isEmbeddedReacherExecutable = (): boolean => {
+	const binaryPath = getBinaryPath();
+	if (!existsSync(binaryPath)) return false;
+	try {
+		accessSync(binaryPath, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+};
+
+export const getEmbeddedReacherVersion = (): string | null => {
+	const binaryPath = getBinaryPath();
+	if (!existsSync(binaryPath)) return null;
+	try {
+		const result = spawnSync(binaryPath, ['--version'], {
+			timeout: 5_000,
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'pipe']
+		});
+		if (result.status === 0 && result.stdout) {
+			return result.stdout.trim() || null;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+};
+
+export { parseCliOutput };
 
 export const runEmbeddedReacher = (email: string) =>
 	new Promise<ReacherCliOutput>((resolvePromise, rejectPromise) => {
