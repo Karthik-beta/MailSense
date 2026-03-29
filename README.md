@@ -126,9 +126,9 @@ Rules that matter:
 
 Key runtime settings:
 
-- `DATABASE_URL`: SQLite file path. Local default is `./data/mailsense.db`.
-- `ORIGIN`: Public app origin. In production this should be the `https://` URL users actually open.
-- `BETTER_AUTH_URL`: Public base URL used by Better Auth. Keep it identical to `ORIGIN`.
+- `DATABASE_URL`: SQLite file path. Local default is `./data/mailsense.db`. On Railway, if this is unset and a volume is attached, MailSense derives `${RAILWAY_VOLUME_MOUNT_PATH}/mailsense.db` automatically.
+- `ORIGIN`: Public app origin. In production this should be the `https://` URL users actually open. On Railway, if this is unset, MailSense derives `https://${RAILWAY_PUBLIC_DOMAIN}` automatically.
+- `BETTER_AUTH_URL`: Public base URL used by Better Auth. Keep it identical to `ORIGIN`. On Railway, if this is unset, MailSense derives it from `ORIGIN` or `RAILWAY_PUBLIC_DOMAIN` automatically.
 - `BETTER_AUTH_SECRET`: Better Auth secret. Use a high-entropy value with at least 32 characters.
 - `GOOGLE_CLIENT_ID`: Google OAuth client ID.
 - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret. Keep it only in server-side environment variables.
@@ -168,13 +168,15 @@ The app is designed as a single deployable Railway service.
 Recommended Railway setup:
 
 1. Create one service from this repository.
-2. Add a persistent volume mounted at `/data`.
-3. Set `DATABASE_URL=/data/mailsense.db`.
-4. Set `ORIGIN` and `BETTER_AUTH_URL` to the same Railway public URL or custom domain.
+2. Keep the existing `railway.toml`; Railpack and the start command are already configured correctly.
+3. Add a persistent volume mounted at `/data`.
+4. Generate a public Railway domain for the service in Networking.
 5. Add the Google OAuth secrets and any optional embedded-verifier tuning variables you want to use.
-6. In Google Cloud, add the exact production callback URI:
+6. If you use the Railway-generated domain, you can leave `ORIGIN`, `BETTER_AUTH_URL`, and `DATABASE_URL` unset and MailSense will derive them from Railway-provided variables at runtime.
+7. If you use a custom domain, set `ORIGIN` and `BETTER_AUTH_URL` explicitly to that canonical `https://` domain.
+8. In Google Cloud, add the exact production callback URI:
    - `https://<your-railway-domain>/api/auth/callback/google`
-7. If you expose a custom domain, add that exact callback URI too.
+9. If you expose a custom domain, add that exact callback URI too.
 
 Railway note:
 
@@ -185,6 +187,7 @@ The deployment uses `bun run start`, which:
 
 - ensures the SQLite directory exists
 - runs Drizzle migrations from `drizzle/`
+- derives `ORIGIN`, `BETTER_AUTH_URL`, and `DATABASE_URL` from Railway-provided runtime variables when you leave them unset
 - starts the adapter-node server with Railway-friendly forwarded-header defaults
 
 ## Railway-like local validation

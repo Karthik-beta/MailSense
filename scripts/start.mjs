@@ -5,7 +5,22 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
-const rawDatabasePath = process.env.DATABASE_URL || './data/mailsense.db';
+const stripProtocol = (value) => value.replace(/^https?:\/\//, '');
+
+const stripTrailingSlash = (value) => value.replace(/\/+$/, '');
+
+const defaultPublicBaseUrl =
+	process.env.BETTER_AUTH_URL ||
+	process.env.ORIGIN ||
+	(process.env.RAILWAY_PUBLIC_DOMAIN
+		? `https://${stripTrailingSlash(stripProtocol(process.env.RAILWAY_PUBLIC_DOMAIN))}`
+		: 'http://localhost:5173');
+
+const rawDatabasePath =
+	process.env.DATABASE_URL ||
+	(process.env.RAILWAY_VOLUME_MOUNT_PATH
+		? `${stripTrailingSlash(process.env.RAILWAY_VOLUME_MOUNT_PATH)}/mailsense.db`
+		: './data/mailsense.db');
 const databasePath = rawDatabasePath.startsWith('/')
 	? rawDatabasePath
 	: resolve(process.cwd(), rawDatabasePath);
@@ -59,6 +74,9 @@ const child = spawn(process.execPath, [resolveBuildEntry()], {
 	stdio: 'inherit',
 	env: {
 		...process.env,
+		ORIGIN: process.env.ORIGIN || defaultPublicBaseUrl,
+		BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || defaultPublicBaseUrl,
+		DATABASE_URL: rawDatabasePath,
 		HOST: process.env.HOST || '0.0.0.0',
 		PROTOCOL_HEADER: process.env.PROTOCOL_HEADER || 'x-forwarded-proto',
 		HOST_HEADER: process.env.HOST_HEADER || 'x-forwarded-host',

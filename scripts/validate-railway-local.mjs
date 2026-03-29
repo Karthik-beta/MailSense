@@ -54,6 +54,26 @@ const isLocalHost = (value) => {
 	}
 };
 
+const stripProtocol = (value) => value.replace(/^https?:\/\//, '');
+
+const stripTrailingSlash = (value) => value.replace(/\/+$/, '');
+
+const getRailwayPublicUrl = (value) => {
+	if (isBlank(value)) {
+		return undefined;
+	}
+
+	return `https://${stripTrailingSlash(stripProtocol(value))}`;
+};
+
+const getRailwayDatabaseUrl = (value) => {
+	if (isBlank(value)) {
+		return undefined;
+	}
+
+	return `${stripTrailingSlash(value)}/mailsense.db`;
+};
+
 const parseDotEnv = (filePath) => {
 	if (!existsSync(filePath)) {
 		return {};
@@ -99,6 +119,10 @@ const auditEnvironment = (env) => {
 	const failures = [];
 	const warnings = [];
 	const infos = [];
+	const railwayPublicUrl = getRailwayPublicUrl(env.RAILWAY_PUBLIC_DOMAIN);
+	const effectiveOriginValue = env.ORIGIN || railwayPublicUrl;
+	const effectiveAuthUrlValue = env.BETTER_AUTH_URL || env.ORIGIN || railwayPublicUrl;
+	const effectiveDatabaseUrl = env.DATABASE_URL || getRailwayDatabaseUrl(env.RAILWAY_VOLUME_MOUNT_PATH);
 
 	const checkUrl = (name, value) => {
 		if (isBlank(value)) {
@@ -114,8 +138,16 @@ const auditEnvironment = (env) => {
 		}
 	};
 
-	const origin = checkUrl('ORIGIN', env.ORIGIN);
-	const authUrl = checkUrl('BETTER_AUTH_URL', env.BETTER_AUTH_URL);
+	const origin = checkUrl('ORIGIN', effectiveOriginValue);
+	const authUrl = checkUrl('BETTER_AUTH_URL', effectiveAuthUrlValue);
+
+	if (isBlank(env.ORIGIN) && railwayPublicUrl) {
+		infos.push('ORIGIN will be derived automatically from RAILWAY_PUBLIC_DOMAIN.');
+	}
+
+	if (isBlank(env.BETTER_AUTH_URL) && effectiveAuthUrlValue) {
+		infos.push('BETTER_AUTH_URL will be derived automatically from ORIGIN or RAILWAY_PUBLIC_DOMAIN.');
+	}
 
 	if (origin && authUrl && origin.origin !== authUrl.origin) {
 		failures.push('ORIGIN and BETTER_AUTH_URL must point at the same public origin.');
@@ -174,18 +206,22 @@ const auditEnvironment = (env) => {
 		'MailSense now verifies email inside the app service with an embedded Reacher CLI binary.'
 	);
 
-	if (isBlank(env.DATABASE_URL)) {
+	if (isBlank(effectiveDatabaseUrl)) {
 		failures.push('DATABASE_URL is missing.');
-	} else if (!env.DATABASE_URL.startsWith('/')) {
+	} else if (!effectiveDatabaseUrl.startsWith('/')) {
 		failures.push(
 			'DATABASE_URL should be an absolute persistent path on Railway, typically /data/mailsense.db.'
 		);
-	} else if (!env.DATABASE_URL.startsWith('/data/')) {
+	} else if (!effectiveDatabaseUrl.startsWith('/data/')) {
 		warnings.push(
 			'DATABASE_URL is absolute but does not use the recommended /data volume path. Confirm your Railway volume mount matches it.'
 		);
 	} else {
 		infos.push('DATABASE_URL uses the recommended /data volume path for Railway persistence.');
+	}
+
+	if (isBlank(env.DATABASE_URL) && !isBlank(env.RAILWAY_VOLUME_MOUNT_PATH)) {
+		infos.push('DATABASE_URL will be derived automatically from RAILWAY_VOLUME_MOUNT_PATH.');
 	}
 
 	if (!existsSync(resolve(rootDir, '.env'))) {
@@ -508,7 +544,7 @@ const runRuntimeSmoke = async (env, origin) => {
 			'GET /imports'
 		);
 		assert(
-			importsHtml.includes('Bring leads in'),
+			importsHtml.includes('File intake'),
 			'Protected imports page did not render in production mode.'
 		);
 

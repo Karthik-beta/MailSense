@@ -5,6 +5,10 @@ const parseInteger = (value: string | undefined, fallback: number) => {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const stripProtocol = (value: string) => value.replace(/^https?:\/\//, '');
+
+const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+
 const parseBoolean = (value: string | undefined, fallback = false) => {
 	if (!value) {
 		return fallback;
@@ -22,10 +26,21 @@ const parseBoolean = (value: string | undefined, fallback = false) => {
 	return fallback;
 };
 
-const defaultPublicBaseUrl = env.BETTER_AUTH_URL || env.ORIGIN || 'http://localhost:5173';
+const railwayPublicBaseUrl = env.RAILWAY_PUBLIC_DOMAIN
+	? `https://${stripTrailingSlash(stripProtocol(env.RAILWAY_PUBLIC_DOMAIN))}`
+	: undefined;
+
+const railwayVolumeDatabaseUrl = env.RAILWAY_VOLUME_MOUNT_PATH
+	? `${stripTrailingSlash(env.RAILWAY_VOLUME_MOUNT_PATH)}/mailsense.db`
+	: undefined;
+
+const defaultPublicBaseUrl =
+	env.BETTER_AUTH_URL || env.ORIGIN || railwayPublicBaseUrl || 'http://localhost:5173';
+
+const defaultDatabaseUrl = env.DATABASE_URL || railwayVolumeDatabaseUrl || './data/mailsense.db';
 
 export const appConfig = {
-	databaseUrl: env.DATABASE_URL || './data/mailsense.db',
+	databaseUrl: defaultDatabaseUrl,
 	publicBaseUrl: defaultPublicBaseUrl,
 	reacherCliPath: env.REACHER_CLI_PATH || '.reacher/bin/check_if_email_exists',
 	reacherFromEmail: env.REACHER_FROM_EMAIL || undefined,
